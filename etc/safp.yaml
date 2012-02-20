@@ -1,0 +1,36 @@
+
+
+#
+# cache dir
+
+cache:
+  dir: /tmp/cache/
+  filter: "\w+"
+  timestamp: 0
+  roll_time: 555
+  roll_size: 2048
+
+
+listener:
+  - type: net
+    host: 127.0.0.1
+    port: 44444
+    proto: tcp_raw
+    prefix: iamnet
+
+  - type: file
+    dir: /tmp/logs
+    file: log*
+    filter: messages
+
+sender:
+#  - type: net
+#    host: 127.0.0.1
+#    port: 55555
+#    proto: tcp
+
+  - type: file
+    dir: /tmp
+    timestamp: 0
+
+

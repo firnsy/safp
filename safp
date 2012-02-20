@@ -1,0 +1,155 @@
+#!/usr/bin/perl
+#
+#
+
+
+use warnings;
+use strict;
+
+use 5.010;
+
+use lib './lib';
+
+#
+# PERL INCLUDES
+#
+use AnyEvent;
+use Data::Dumper;
+use YAML::Tiny;
+
+#
+# SAFP INCLUDES
+#
+use SAFP::Watcher;
+use SAFP::Writer;
+
+
+#
+# GLOBALS
+#
+
+my $bookmarks = {};
+my $config = {};
+
+
+#
+# MAIN
+#
+#AE::signal TERM => $quit;
+#AE::signal HUP  => $quit;
+#AE::signal INT  => $quit;
+
+# read config
+
+if( @ARGV && -r $ARGV[0] ) {
+  # only using the first section
+  $config = YAML::Tiny->read($ARGV[0])->[0];
+}
+
+# TODO: some initial defaults to be replaced with optional and mandatory
+# config checking later on
+
+$config->{listener} //= [];
+$config->{sender} //= [];
+
+$config->{cache}{separate} //= 0;
+$config->{cache}{path}     //= '/tmp';
+
+
+
+#
+# validate config
+if( ! @{ $config->{listener} } ) {
+  say("No listeners are configured.");
+  exit(1);
+}
+
+if( ! @{ $config->{sender} } ) {
+  say("No senders are configured.");
+  exit(1);
+}
+
+# setup cache directory
+if( ! -d -w -r $config->{cache}{path} ) {
+  say("Cache directory does not exist or is not readable/writable: " . $config->{cache}{path});
+  exit(1);
+}
+
+# read bookmark
+
+
+# open watcher(s)
+my $watchers = [];
+
+$config->{cache}{type} //= "cache";
+
+say "Building cache...";
+my $cache_writer = SAFP::Writer->new($config->{cache});
+
+sub reading {
+  my $data = shift;
+
+  # cache information
+  $cache_writer->write($data);
+
+}
+
+say "Building listeners...";
+foreach my $l ( @{ $config->{listener} } ) {
+  continue if( ! defined($l->{type}) );
+
+  my $watcher = SAFP::Watcher->new($l);
+
+  $watcher->add_bookmark_store( $bookmarks );
+  $watcher->add_reader( \&reading );
+
+  push( @{ $watchers }, $watcher );
+}
+
+
+say "Building senders...";
+foreach my $s ( @{ $config->{sender} } ) {
+  continue if( ! defined($s->{type}) );
+
+}
+
+
+
+#my $sock_listen = $ctx->socket(ZMQ_REQ);
+#$sock_listen->bind(
+
+
+# open forwarder
+#my $sock_sender = $ctx->socket(ZMQ_RSP);
+
+
+# each entry is a json entry
+# {
+#   "safp: "0.1",
+#   "rcpt": "udp://123.23.123.3:522",
+#   "rcpt": "/tmp/snort.u2",
+#   "data": "base64-encoded",
+#   "dlen": "decoded-length",
+#   "csum": "crc32"
+# }
+
+
+my $exit_cv = AE::cv;
+
+say "Initialised.";
+
+# spool
+#while 1
+
+#  forward from bookmark to head
+#    update bookmark per line
+
+#  read all forwards
+#    cache in dir
+
+
+$exit_cv->recv();
+
+
+
+say "END";
