@@ -233,7 +233,7 @@ sub _read_rbuf {
     $self->_drain_rbuf();
 
     my $eof = syseof($self->{_path_h}) + 0;
-
+    my $bookmark = $self->{_bookmark_store}{ $self->{_url} };
 
     # check if file has shrunk with respect to our expected offset
     if( $self->{_offset} > $eof ) {
@@ -247,8 +247,8 @@ sub _read_rbuf {
     elsif ( ! -f $self->{_path} ) {
       $self->_close();
 
-      $self->{_bookmark_store}{ $self->{_url} }{path} = ''; 
-      $self->{_bookmark_store}{ $self->{_url} }{offset} = 0;
+      $self->{_path} = '';
+      $self->{_offset} = 0;
 
       $self->_open_with_bookmark();
     }
@@ -267,14 +267,15 @@ sub _read_rbuf {
         $self->_close();
 
         # update the bookmark with next file details
-        $self->{_bookmark_store}{ $self->{_url} }{path} = $self->{_path_list}[$index + 1];
-        $self->{_bookmark_store}{ $self->{_url} }{offset} = 0;
+        $self->{_path} = $self->{_path_list}[$index + 1];
+        $self->{_offset} = 0;
 
         $self->_open_with_bookmark();
       }
     }
 
     $self->{_bookmark_store}{ $self->{_url} } = {
+      path   => $self->{_path},
       offset => $self->{_offset},
       csum   => ''
     };
@@ -297,6 +298,9 @@ sub _drain_rbuf {
     last unless $len;
 
     $self->_on_read($self->{_rbuf});
+
+    # XXX: bookmark on confirmation
+    $self->_bookmark();
 
     if( $len == length( $self->{_rbuf} ) ) {
       say("ARE YOU GOING TO CONSUME OR NOT!!!");
@@ -322,12 +326,13 @@ sub _on_read {
 
 sub _bookmark {
   my $self = shift;
-   
+
   my $offset = 0;
- 
+
   if( defined($self->{_rbuf}) &&
       defined($self->{_offset}) ) {
     $self->{_bookmark_store}{ $self->{_url} } = {
+      path   => $self->{_path},
       offset => $self->{_offset} - length($self->{_rbuf}),
       csum   => ''
     };

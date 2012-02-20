@@ -5,7 +5,6 @@
 
 cache:
   dir: /tmp/cache/
-  filter: "\w+"
   timestamp: 0
   roll_time: 555
   roll_size: 2048

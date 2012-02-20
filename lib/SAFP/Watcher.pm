@@ -16,6 +16,7 @@ use Digest::MD5 qw(md5_hex);
 #
 # SAFP INCLUDES
 #
+use SAFP::Watcher::Cache;
 use SAFP::Watcher::File;
 use SAFP::Watcher::Net;
 

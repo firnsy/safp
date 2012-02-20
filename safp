@@ -35,9 +35,6 @@ my $config = {};
 #
 # MAIN
 #
-#AE::signal TERM => $quit;
-#AE::signal HUP  => $quit;
-#AE::signal INT  => $quit;
 
 # read config
 
@@ -85,6 +82,13 @@ $config->{cache}{type} //= "cache";
 
 say "Building cache...";
 my $cache_writer = SAFP::Writer->new($config->{cache});
+my $cache_watcher = SAFP::Watcher->new($config->{cache});
+
+$cache_watcher->add_bookmark_store( $bookmarks );
+$cache_watcher->add_reader(sub {
+  my $data = shift;
+  say 'FROM CACHE: ' . Dumper($data);
+});
 
 sub reading {
   my $data = shift;
@@ -136,20 +140,20 @@ foreach my $s ( @{ $config->{sender} } ) {
 
 my $exit_cv = AE::cv;
 
+my $quit = sub {
+  $exit_cv->send();
+};
+
+my $cv_term = AE::signal TERM => $quit;
+my $cv_hup  = AE::signal HUP  => $quit;
+my $cv_int  = AE::signal INT  => $quit;
+
 say "Initialised.";
-
-# spool
-#while 1
-
-#  forward from bookmark to head
-#    update bookmark per line
-
-#  read all forwards
-#    cache in dir
 
 
 $exit_cv->recv();
 
-
+say "\nSaving the bookmark.";
+$cache_watcher->save_bookmarks();
 
 say "END";

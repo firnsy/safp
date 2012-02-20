@@ -68,11 +68,11 @@ sub _setup {
   my $self = shift;
   my $cfg = $self->{_cfg};
 
-  croak("No directory configured for listener.") if( ! defined($cfg->{dir}) );
+  croak("No directory configured for cache writer.") if( ! defined($cfg->{dir}) );
  
   croak("Absolute paths are required.") if( $cfg->{dir} =~ /^\./ );
 
-  croak("Directory does not exist or is not writable.") if( ! -d -w $cfg->{dir} );
+  croak("Cache directory does not exist or is not writable: " . $cfg->{dir}) if( ! -d -w $cfg->{dir} );
 
   $self->{_url} = 'file://' . $cfg->{dir};
 
@@ -107,20 +107,6 @@ sub _setup {
   say("  Caching at: " . $cfg->{dir});
 }
 
-
-sub _bookmark {
-  my $self = shift;
-
-  my $offset = 0;
-
-  if( defined($self->{_rbuf}) &&
-      defined($self->{_offset}) ) {
-    $self->{_bookmark_store}{ $self->{_url} } = {
-      offset => $self->{_offset} - length($self->{_rbuf}),
-      csum   => ''
-    };
-  }
-}
 
 sub write {
   my $self = shift;

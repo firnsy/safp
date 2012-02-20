@@ -1,4 +1,4 @@
-package SAFP::Watcher::File;
+package SAFP::Watcher::Cache;
 
 use warnings;
 use strict;
@@ -9,12 +9,12 @@ use base qw(SAFP::Watcher);
 
 #
 # PERL INCLUDES
-# 
+#
 use AnyEvent;
 use AnyEvent::Handle;
 use Carp;
 use Data::Dumper;
-use Fcntl qw(SEEK_SET SEEK_CUR SEEK_END O_RDONLY);
+use Fcntl qw(SEEK_SET SEEK_CUR SEEK_END O_RDONLY O_WRONLY O_CREAT O_EXCL O_TRUNC);
 use JSON;
 use Scalar::Util qw(weaken);
 
@@ -61,6 +61,24 @@ sub add_bookmark_store {
   $self->{_bookmark_store} = $bookmark_store;
 }
 
+sub save_bookmarks {
+  my $self = shift;
+  my $bookmark_h;
+  my $bookmark_path = $self->{_cfg}{dir} . '/.bookmarks';
+
+  croak("Unable to open bookmark: " . $bookmark_path) if( ! (sysopen( $bookmark_h, $bookmark_path, O_WRONLY | O_CREAT | O_TRUNC) ) );
+
+  my $b = $self->{_json}->encode($self->{_bookmark_store}) . "\n";
+
+  syswrite $bookmark_h, $b, length($b);
+
+  close($bookmark_h);
+}
+
+sub load_bookmarks {
+
+}
+
 #
 # PRIVATE USAGE
 #
@@ -70,77 +88,47 @@ sub _setup {
   my $self = shift;
   my $cfg = $self->{_cfg};
 
-  if( ! ( defined($cfg->{dir}) && defined($cfg->{file}) ) ) {
-    croak("No path configured for listener.");
+  if( ! defined($cfg->{dir}) ) {
+    croak("No direcotry configured for cache watcher.");
   }
   elsif( ! $cfg->{dir} =~ /^\./ ) {
     croak("Absolute dirs are required.");
   }
   elsif( ! -d -r $cfg->{dir} ) {
-    croak("Directory doesn't exist or is not readable.");
+    croak("Cache directory doesn't exist or is not readable: " . $cfg->{dir});
   }
-
-  $cfg->{prefix} //= `hostname | xargs echo -n`;
 
   # cleanup trailing and leading slashes
   $cfg->{dir}  =~ s/\/$//;
-  $cfg->{file} =~ s/^\///;
-
-  $self->{_url} = 'file://' . $cfg->{prefix} . $cfg->{dir} . '/' . $cfg->{file};
+  $cfg->{file} = 'cache.*';
 
   $self->{_json} = JSON->new->utf8;
 
-  my $protocols = {
-    cache => 'json',
-    json  => 'json',
-    line  => 'line',  # assumed default
-  };
-
-  $cfg->{proto} //= ($cfg->{type} eq 'cache' ? 'cache' : 'line');
-  $self->{_proto} = $protocols->{ $cfg->{proto} };
-
   weaken($self);
 
-  if( $self->{_proto} eq 'cache' ) {
-
-    $self->{decoder} = sub {
-      my $ref = eval {
-        $self->{_json}->incr_parse($self->{_rbuf})
-      };
-
-      if( $ref ) {
-        $self->{_rbuf} = $self->{_json}->incr_text;
-        $self->{_json}->incr_text = '';
-
-        return $ref;
-      }
-      elsif( $@ ) {
-        $self->{_json}->incr_skip;
-        $self->{_rbuf} = $self->{_json}->incr_text;
-
-        say("JSON: DECODE POOPED!");
-      }
-      else {
-        $self->{_rbuf} = '';
-      }
-
-      return undef;
+  $self->{decoder} = sub {
+    my $ref = eval {
+      $self->{_json}->incr_parse($self->{_rbuf})
     };
-  }
-  else {
-    $self->{decoder} = sub {
-      # throws warning
-      $self->{_rbuf} =~ s/^([^\015\012]*)(\015?\012)// or return undef;
 
-      return {
-        safp => '0.1',
-        rcpt => $self->{_url},
-        data => $1,
-        dlen => length($1),
-        csum => $self->checksum($1)
-      };
-    };
-  }
+    if( $ref ) {
+      $self->{_rbuf} = $self->{_json}->incr_text;
+      $self->{_json}->incr_text = '';
+
+      return $ref;
+    }
+    elsif( $@ ) {
+      $self->{_json}->incr_skip;
+      $self->{_rbuf} = $self->{_json}->incr_text;
+
+      say("JSON: DECODE POOPED!");
+    }
+    else {
+      $self->{_rbuf} = '';
+    }
+
+    return undef;
+  };
 
   $self->_open_with_bookmark();
 }
@@ -150,7 +138,7 @@ sub _open_with_bookmark {
 
   return if( $self->{_path_h} );
 
-  my $bookmark = $self->{_bookmark_store}{ $self->{_url} } // {};
+  my $bookmark = $self->{_bookmark_store}{'.cache'} // {};
 
   # get list of available files
   my $glob_list = $self->{_cfg}{dir} . '/' . $self->{_cfg}{file};
@@ -233,7 +221,7 @@ sub _read_rbuf {
     $self->_drain_rbuf();
 
     my $eof = syseof($self->{_path_h}) + 0;
-
+    my $bookmark = $self->{_bookmark_store}{'.cache'};
 
     # check if file has shrunk with respect to our expected offset
     if( $self->{_offset} > $eof ) {
@@ -247,8 +235,8 @@ sub _read_rbuf {
     elsif ( ! -f $self->{_path} ) {
       $self->_close();
 
-      $self->{_bookmark_store}{ $self->{_url} }{path} = ''; 
-      $self->{_bookmark_store}{ $self->{_url} }{offset} = 0;
+      $self->{_path} = ''; 
+      $self->{_offset} = 0;
 
       $self->_open_with_bookmark();
     }
@@ -267,19 +255,16 @@ sub _read_rbuf {
         $self->_close();
 
         # update the bookmark with next file details
-        $self->{_bookmark_store}{ $self->{_url} }{path} = $self->{_path_list}[$index + 1];
-        $self->{_bookmark_store}{ $self->{_url} }{offset} = 0;
+        $self->{_path} = $self->{_path_list}[$index + 1];
+        $self->{_offset} = 0;
 
         $self->_open_with_bookmark();
       }
     }
 
-    $self->{_bookmark_store}{ $self->{_url} } = {
-      offset => $self->{_offset},
-      csum   => ''
-    };
+    $self->_bookmark();
   }
-  else{ 
+  else{
     say("ERROR: I SUCK");
   }
 }
@@ -297,6 +282,9 @@ sub _drain_rbuf {
     last unless $len;
 
     $self->_on_read($self->{_rbuf});
+
+    # XXX: bookmark on confirmation
+    $self->_bookmark();
 
     if( $len == length( $self->{_rbuf} ) ) {
       say("ARE YOU GOING TO CONSUME OR NOT!!!");
@@ -322,12 +310,13 @@ sub _on_read {
 
 sub _bookmark {
   my $self = shift;
-   
+
   my $offset = 0;
- 
+
   if( defined($self->{_rbuf}) &&
       defined($self->{_offset}) ) {
-    $self->{_bookmark_store}{ $self->{_url} } = {
+    $self->{_bookmark_store}{'.cache'} = {
+      path   => $self->{_path},
       offset => $self->{_offset} - length($self->{_rbuf}),
       csum   => ''
     };
