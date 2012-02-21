@@ -120,7 +120,7 @@ sub _client_connected
       };
 
       foreach my $r ( @{ $self->{_readers} } ) {
-        $r->( $safp_pack );
+        $r->( $self, $safp_pack );
       }
     }
   }

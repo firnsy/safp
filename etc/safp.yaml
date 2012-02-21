@@ -10,7 +10,7 @@ cache:
   roll_size: 2048
 
 
-listener:
+watchers:
   - type: net
     host: 127.0.0.1
     port: 44444
@@ -22,14 +22,14 @@ listener:
     file: log*
     filter: messages
 
-sender:
+writers:
 #  - type: net
 #    host: 127.0.0.1
 #    port: 55555
 #    proto: tcp
 
   - type: file
-    dir: /tmp
+    dir: /tmp/out
     timestamp: 0
 
 

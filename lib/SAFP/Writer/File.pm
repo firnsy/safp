@@ -68,13 +68,20 @@ sub _setup {
   my $self = shift;
   my $cfg = $self->{_cfg};
 
-  croak("No path configured for listener.") if( ! defined($cfg->{path}) );
- 
-  croak("Absolute paths are required.") if( $cfg->{path} =~ /^\./ );
+  if( ! defined($cfg->{dir}) ) {
+    croak("No directory configured for file writer.");
+  }
+  elsif( $cfg->{dir} =~ /^\./ ) {
+    croak("Absolute paths are required.");
+  }
+  elsif( ! -d -r $cfg->{dir} ) {
+    croak("Directory doesn't exist or is not readable.");
+  }
 
-  croak("Path is not a directory.") if( ! -d $cfg->{path} );
+  # cleanup trailing and leading slashes 
+  $cfg->{dir}  =~ s/\/$//;
 
-  $self->{_url} = 'file://' . $cfg->{path};
+  $self->{_url} = 'file://' . $cfg->{dir};
 
   $self->{_json} = JSON->new->utf8;
 
@@ -95,8 +102,9 @@ sub _setup {
     when ('json') {
       # weaken one's self for the callback reference
       weaken($self);
+
       $self->{encoder} = sub {
-        $self->{_json}->encode(@_);
+        $self->{_json}->decode(@_);
       };
     }
     default {
@@ -105,35 +113,28 @@ sub _setup {
       };
     }
   }
+
+  say('  - Writing at: ' . $cfg->{dir} . '/');
 }
 
-
-sub _bookmark {
-  my $self = shift;
-
-  my $offset = 0;
-
-  if( defined($self->{_rbuf}) &&
-      defined($self->{_offset}) ) {
-    $self->{_bookmark_store}{ $self->{_url} } = {
-      offset => $self->{_offset} - length($self->{_rbuf}),
-      csum   => ''
-    };
-  }
-}
 
 sub write {
   my $self = shift;
   my $data = shift;
 
-  croak("Unexpected data type: " . ref($data)) if( ref($data) ne 'HASH' );
+  croak("Unexpected data tsype: " . ref($data)) if( ref($data) ne 'HASH' );
 
   my $path = $data->{rcpt};
 
-  # check for roll file on time
-  $self->_roll_file_on_time($path);
+  if( ! defined($self->{_handles}{ $path }{fh}) ) {
+    $self->_open_file($path);
+  }
+  else {
+    # check for roll file on time
+    $self->_roll_file_on_time($path);
+  }
 
-  my $data_write = $self->{encoder}->($data) . "\n";
+  my $data_write = $data->{data} . "\n";
 
   print $data_write;
 
@@ -153,7 +154,8 @@ sub _open_file {
   my $now = int(AE::now);
 
   # sanitise path if required
-  $handle->{path} //= $self->{_cfg}{path} . substr($path, rindex($path, '/')) . '.' . $now;
+  $handle->{path} //= $self->{_cfg}{dir} . substr($path, rindex($path, '/')) . '.' . $now;
+  say('Writing file: ' . $handle->{path});
 
   # update time always
   $handle->{time} = $now;

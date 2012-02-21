@@ -9,12 +9,12 @@ use base qw(SAFP::Watcher);
 
 #
 # PERL INCLUDES
-# 
+#
 use AnyEvent;
 use AnyEvent::Handle;
 use Carp;
 use Data::Dumper;
-use Fcntl qw(SEEK_SET SEEK_CUR SEEK_END O_RDONLY);
+use Fcntl qw(SEEK_SET SEEK_CUR SEEK_END O_RDONLY O_WRONLY O_CREAT O_EXCL O_TRUNC);
 use JSON;
 use Scalar::Util qw(weaken);
 
@@ -61,25 +61,42 @@ sub add_bookmark_store {
   $self->{_bookmark_store} = $bookmark_store;
 }
 
+sub bookmark {
+  my $self = shift;
+
+  my $offset = 0;
+
+  if( defined($self->{_rbuf}) &&
+      defined($self->{_offset}) ) {
+    $self->{_bookmark_store}{ $self->{_url} } = {
+      path   => $self->{_path},
+      offset => $self->{_offset} - length($self->{_rbuf}),
+      csum   => ''
+    };
+  }
+}
+
 #
 # PRIVATE USAGE
 #
 
-
 sub _setup {
   my $self = shift;
+
   my $cfg = $self->{_cfg};
 
+  # sanity check on required config parameters
   if( ! ( defined($cfg->{dir}) && defined($cfg->{file}) ) ) {
-    croak("No path configured for listener.");
+    croak("No directory configured for file watcher.");
   }
   elsif( ! $cfg->{dir} =~ /^\./ ) {
     croak("Absolute dirs are required.");
   }
   elsif( ! -d -r $cfg->{dir} ) {
-    croak("Directory doesn't exist or is not readable.");
+    croak("File directory doesn't exist or is not readable." . $cfg->{dir});
   }
 
+  # add unique-ness if no prefix is specified
   $cfg->{prefix} //= `hostname | xargs echo -n`;
 
   # cleanup trailing and leading slashes
@@ -88,6 +105,7 @@ sub _setup {
 
   $self->{_url} = 'file://' . $cfg->{prefix} . $cfg->{dir} . '/' . $cfg->{file};
 
+  # establish our JSON codec
   $self->{_json} = JSON->new->utf8;
 
   my $protocols = {
@@ -99,6 +117,7 @@ sub _setup {
   $cfg->{proto} //= ($cfg->{type} eq 'cache' ? 'cache' : 'line');
   $self->{_proto} = $protocols->{ $cfg->{proto} };
 
+  # weaken our self for use in callbacks
   weaken($self);
 
   if( $self->{_proto} eq 'cache' ) {
@@ -156,8 +175,8 @@ sub _open_with_bookmark {
   my $glob_list = $self->{_cfg}{dir} . '/' . $self->{_cfg}{file};
   $self->{_path_list} = [ < $glob_list > ];
 
-  $self->{_offset} = $bookmark->{offset} // 0;
-  $self->{_path}   = $bookmark->{path}   // '';
+  $self->{_offset} //= $bookmark->{offset} // 0;
+  $self->{_path}   //= $bookmark->{path}   // '';
   my $csum = $bookmark->{csum} // '';
 
   # clear bookmark if no files available and try again later
@@ -218,7 +237,6 @@ sub _schedule_open {
   };
 }
 
-
 sub _read_rbuf {
   my $self = shift;
 
@@ -273,14 +291,8 @@ sub _read_rbuf {
         $self->_open_with_bookmark();
       }
     }
-
-    $self->{_bookmark_store}{ $self->{_url} } = {
-      path   => $self->{_path},
-      offset => $self->{_offset},
-      csum   => ''
-    };
   }
-  else{ 
+  else{
     say("ERROR: I SUCK");
   }
 }
@@ -299,16 +311,12 @@ sub _drain_rbuf {
 
     $self->_on_read($self->{_rbuf});
 
-    # XXX: bookmark on confirmation
-    $self->_bookmark();
-
     if( $len == length( $self->{_rbuf} ) ) {
       say("ARE YOU GOING TO CONSUME OR NOT!!!");
       last;
     }
   }
 }
-
 
 sub _on_read {
   my $self = shift;
@@ -318,24 +326,7 @@ sub _on_read {
   return if( ! defined($safp_pack) );
 
   foreach my $r ( @{ $self->{_readers} } ) {
-    $r->( $safp_pack );
-  }
-
-  $self->_bookmark();
-}
-
-sub _bookmark {
-  my $self = shift;
-
-  my $offset = 0;
-
-  if( defined($self->{_rbuf}) &&
-      defined($self->{_offset}) ) {
-    $self->{_bookmark_store}{ $self->{_url} } = {
-      path   => $self->{_path},
-      offset => $self->{_offset} - length($self->{_rbuf}),
-      csum   => ''
-    };
+    $r->( $self, $safp_pack );
   }
 }
 

@@ -68,11 +68,18 @@ sub _setup {
   my $self = shift;
   my $cfg = $self->{_cfg};
 
-  croak("No directory configured for cache writer.") if( ! defined($cfg->{dir}) );
- 
-  croak("Absolute paths are required.") if( $cfg->{dir} =~ /^\./ );
+  if( ! defined($cfg->{dir}) ) {
+    croak("No directory configured for cache writer.");
+  }
+  elsif( $cfg->{dir} =~ /^\./ ) {
+    croak("Absolute paths are required.");
+  }
+  elsif( ! -d -r $cfg->{dir} ) {
+    croak("Cache directory doesn't exist or is not readable.");
+  }
 
-  croak("Cache directory does not exist or is not writable: " . $cfg->{dir}) if( ! -d -w $cfg->{dir} );
+  # cleanup trailing and leading slashes 
+  $cfg->{dir}  =~ s/\/$//;
 
   $self->{_url} = 'file://' . $cfg->{dir};
 
@@ -104,7 +111,7 @@ sub _setup {
     };
   }
 
-  say("  Caching at: " . $cfg->{dir});
+  say('  - Writing at: ' . $cfg->{dir} . '/');
 }
 
 

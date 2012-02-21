@@ -23,14 +23,14 @@ use YAML::Tiny;
 use SAFP::Watcher;
 use SAFP::Writer;
 
-
 #
 # GLOBALS
 #
 
 my $bookmarks = {};
-my $config = {};
-
+my $config    = {};
+my $watchers  = [];
+my $writers   = [];
 
 #
 # MAIN
@@ -52,19 +52,35 @@ $config->{sender} //= [];
 $config->{cache}{separate} //= 0;
 $config->{cache}{path}     //= '/tmp';
 
-
-
 #
 # validate config
-if( ! @{ $config->{listener} } ) {
-  say("No listeners are configured.");
+if( ! @{ $config->{watchers} } ) {
+  say("No watchers are configured.");
   exit(1);
 }
 
-if( ! @{ $config->{sender} } ) {
-  say("No senders are configured.");
+if( ! @{ $config->{writers} } ) {
+  say("No writers are configured.");
   exit(1);
 }
+
+#
+# build the writers 
+say "Building writer(s) ...";
+
+foreach my $s ( @{ $config->{writers} } ) {
+  continue if( ! defined($s->{type}) );
+
+  my $writer = SAFP::Writer->new($s);
+
+  push( @{ $writers }, $writer );
+}
+
+#
+# build the cache
+say "Building cache ...";
+
+$config->{cache}{type} //= "cache";
 
 # setup cache directory
 if( ! -d -w -r $config->{cache}{path} ) {
@@ -72,25 +88,36 @@ if( ! -d -w -r $config->{cache}{path} ) {
   exit(1);
 }
 
-# read bookmark
-
-
-# open watcher(s)
-my $watchers = [];
-
-$config->{cache}{type} //= "cache";
-
-say "Building cache...";
 my $cache_writer = SAFP::Writer->new($config->{cache});
 my $cache_watcher = SAFP::Watcher->new($config->{cache});
 
 $cache_watcher->add_bookmark_store( $bookmarks );
 $cache_watcher->add_reader(sub {
+  my $cache = shift;
   my $data = shift;
-  say 'FROM CACHE: ' . Dumper($data);
+
+  if( @{ $writers } ) {
+    foreach my $w ( @{ $writers } ) {
+      say 'FROM CACHE: ' . Dumper($data);
+
+      $w->write($data);
+    }
+
+    # bookmark on confirmation
+    $cache->bookmark();
+  }
 });
 
+# load the bookmarks
+say "Loading bookmarks ...";
+$cache_watcher->load_bookmarks();
+
+#
+# build the watchers
+say "Building watcher(s) ...";
+
 sub reading {
+  my $reader = shift;
   my $data = shift;
 
   # cache information
@@ -98,8 +125,7 @@ sub reading {
 
 }
 
-say "Building listeners...";
-foreach my $l ( @{ $config->{listener} } ) {
+foreach my $l ( @{ $config->{watchers} } ) {
   continue if( ! defined($l->{type}) );
 
   my $watcher = SAFP::Watcher->new($l);
@@ -110,34 +136,8 @@ foreach my $l ( @{ $config->{listener} } ) {
   push( @{ $watchers }, $watcher );
 }
 
-
-say "Building senders...";
-foreach my $s ( @{ $config->{sender} } ) {
-  continue if( ! defined($s->{type}) );
-
-}
-
-
-
-#my $sock_listen = $ctx->socket(ZMQ_REQ);
-#$sock_listen->bind(
-
-
-# open forwarder
-#my $sock_sender = $ctx->socket(ZMQ_RSP);
-
-
-# each entry is a json entry
-# {
-#   "safp: "0.1",
-#   "rcpt": "udp://123.23.123.3:522",
-#   "rcpt": "/tmp/snort.u2",
-#   "data": "base64-encoded",
-#   "dlen": "decoded-length",
-#   "csum": "crc32"
-# }
-
-
+#
+# setup the signal handlers
 my $exit_cv = AE::cv;
 
 my $quit = sub {
@@ -148,12 +148,16 @@ my $cv_term = AE::signal TERM => $quit;
 my $cv_hup  = AE::signal HUP  => $quit;
 my $cv_int  = AE::signal INT  => $quit;
 
+#
+# start the event loop
 say "Initialised.";
-
 
 $exit_cv->recv();
 
+#
+# cleanup, saving bookmarks on exit
 say "\nSaving the bookmark.";
+
 $cache_watcher->save_bookmarks();
 
-say "END";
+exit 0;
