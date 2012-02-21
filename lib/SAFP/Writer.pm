@@ -18,7 +18,7 @@ use Scalar::Util qw(weaken);
 #
 use SAFP::Writer::Cache;
 use SAFP::Writer::File;
-#use SAFP::Watcher::Net;
+use SAFP::Writer::Net;
 
 
 #
@@ -31,12 +31,10 @@ use SAFP::Writer::File;
 #
 
 sub new {
-  my $class = shift;
-  my $cfg = shift;
+  my ($class, $cfg, $cache) = @_;
 
   if( ! defined($cfg) )
   {
-
     croak("No configuration provided.");
     return undef;
   }
@@ -46,7 +44,7 @@ sub new {
   my $types = {
     file  => 'File',
     cache => 'Cache',
-#   net   => 'Net',
+    net   => 'Net',
   };
 
   my $type = $types->{ lc($cfg->{type}) } // "";
@@ -57,7 +55,7 @@ sub new {
 
   my $writer_path = "SAFP::Writer::$type";
 
-  return $writer_path->new($cfg);
+  return $writer_path->new($cfg, $cache);
 }
 
 sub write {
@@ -69,7 +67,6 @@ sub add_writer {
 }
 
 sub add_bookmark_store {
-  #croak("add_bookmark: is a virtual stub and needs to be overwritten.");
 }
 
 sub checksum {

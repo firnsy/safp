@@ -49,6 +49,7 @@ if( @ARGV && -r $ARGV[0] ) {
 $config->{listener} //= [];
 $config->{sender} //= [];
 
+$config->{cache}{type}     //= "cache";
 $config->{cache}{separate} //= 0;
 $config->{cache}{path}     //= '/tmp';
 
@@ -64,6 +65,10 @@ if( ! @{ $config->{writers} } ) {
   exit(1);
 }
 
+# load the bookmarks
+say "Loading bookmarks ...";
+#$cache_watcher->load_bookmarks();
+
 #
 # build the writers 
 say "Building writer(s) ...";
@@ -71,7 +76,8 @@ say "Building writer(s) ...";
 foreach my $s ( @{ $config->{writers} } ) {
   continue if( ! defined($s->{type}) );
 
-  my $writer = SAFP::Writer->new($s);
+  my $writer = SAFP::Writer->new($s, $config->{cache});
+  $writer->add_bookmark_store($bookmarks);
 
   push( @{ $writers }, $writer );
 }
@@ -80,8 +86,6 @@ foreach my $s ( @{ $config->{writers} } ) {
 # build the cache
 say "Building cache ...";
 
-$config->{cache}{type} //= "cache";
-
 # setup cache directory
 if( ! -d -w -r $config->{cache}{path} ) {
   say("Cache directory does not exist or is not readable/writable: " . $config->{cache}{path});
@@ -89,28 +93,6 @@ if( ! -d -w -r $config->{cache}{path} ) {
 }
 
 my $cache_writer = SAFP::Writer->new($config->{cache});
-my $cache_watcher = SAFP::Watcher->new($config->{cache});
-
-$cache_watcher->add_bookmark_store( $bookmarks );
-$cache_watcher->add_reader(sub {
-  my $cache = shift;
-  my $data = shift;
-
-  if( @{ $writers } ) {
-    foreach my $w ( @{ $writers } ) {
-      say 'FROM CACHE: ' . Dumper($data);
-
-      $w->write($data);
-    }
-
-    # bookmark on confirmation
-    $cache->bookmark();
-  }
-});
-
-# load the bookmarks
-say "Loading bookmarks ...";
-$cache_watcher->load_bookmarks();
 
 #
 # build the watchers
@@ -158,6 +140,8 @@ $exit_cv->recv();
 # cleanup, saving bookmarks on exit
 say "\nSaving the bookmark.";
 
-$cache_watcher->save_bookmarks();
+say Dumper($bookmarks);
+
+#$cache_watcher->save_bookmarks();
 
 exit 0;

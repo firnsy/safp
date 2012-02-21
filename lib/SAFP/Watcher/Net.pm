@@ -54,9 +54,9 @@ sub _setup {
   $cfg->{proto} //= "tcp";
 
   my $protocols = {
-    tcp_raw => ["tcp", "line"],
-    tcp     => ["tcp", "line"],
-    tcp_chk => ["tcp", "json"],
+    tcp_raw  => ["tcp", "line"],
+    tcp      => ["tcp", "line"],
+    tcp_safp => ["tcp", "json"],
   };
 
   croak("Unsupported protocol: " . $cfg->{proto} . " (" . join(",", keys(%{ $protocols })) . ")") if( ! defined($protocols->{ $cfg->{proto} }) );
@@ -64,21 +64,19 @@ sub _setup {
   $self->{_proto} = $protocols->{$cfg->{proto}}->[0];
   $self->{_proto_handler} = $protocols->{$cfg->{proto}}->[1];
 
-  given( $self->{_proto} )
+  if( $self->{_proto} eq 'tcp' )
   {
-    when('tcp') {
-      $self->{server} = tcp_server(
-        $cfg->{host},
-        $cfg->{port},
-        sub {
-          $self->_client_connected(@_);
-        },
-        sub {
-          my ($fh, $this_host, $this_port) = @_;
-          say("  - Watching on tcp://" . $this_host . ":" . $this_port);
-        }
-      );
-    }
+    $self->{server} = tcp_server(
+      $cfg->{host},
+      $cfg->{port},
+      sub {
+        $self->_client_connected(@_);
+      },
+      sub {
+        my ($fh, $this_host, $this_port) = @_;
+        say("  - Watching on tcp://" . $this_host . ":" . $this_port);
+      }
+    );
   }
 }
 
@@ -97,7 +95,7 @@ sub _client_connected
       on_eof   => sub { $self->_on_eof(@_);   },
       on_error => sub { $self->_on_error(@_); },
     ),
-    url => $self->{_proto} . '://' . $host . ':' . $port
+    url => $self->{_proto} . '://' . $host
   };
 
   # read callback is ($from, $data)
@@ -106,7 +104,7 @@ sub _client_connected
 
 
   if( $self->{_proto_handler} eq 'line' ) {
-    $self->{_proto_handler_cb} = sub {
+    $self->{_decoder} = sub {
       my ($fh, $line, $eol) = @_;
 
       my $fh_n = fileno($fh->{fh});
@@ -116,8 +114,26 @@ sub _client_connected
         rcpt => $self->{_clients}{$fh_n}{url},
         data => $line,
         dlen => length($line),
-        csum => 'sdfsdfasdf'
+        csum => '0x00'
       };
+
+      foreach my $r ( @{ $self->{_readers} } ) {
+        $r->( $self, $safp_pack );
+      }
+    }
+  }
+  elsif( $self->{_proto_handler} eq 'json' ) {
+    $self->{_decoder} = sub {
+      my ($fh, $json) = @_;
+
+      my $fh_n = fileno($fh->{fh});
+
+      my $safp_pack = $json;
+
+      if( $json->{safp} ne '0.1' ) {
+        say("Version mismatch");
+        return;
+      }
 
       foreach my $r ( @{ $self->{_readers} } ) {
         $r->( $self, $safp_pack );
@@ -141,7 +157,7 @@ sub _on_error {
 sub _on_read {
   my ($self, $handle) = @_;
 
-  $handle->push_read($self->{_proto_handler} => sub { $self->{_proto_handler_cb}->(@_); });
+  $handle->push_read($self->{_proto_handler} => sub { $self->{_decoder}->(@_); });
 }
 
 sub _on_write {

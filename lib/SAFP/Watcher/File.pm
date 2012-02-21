@@ -247,7 +247,6 @@ sub _read_rbuf {
     $self->{_offset} += $len;
   }
   elsif( defined($len) ) {
-    say("I'M EOF");
     $self->_drain_rbuf();
 
     my $eof = syseof($self->{_path_h}) + 0;
@@ -255,7 +254,6 @@ sub _read_rbuf {
 
     # check if file has shrunk with respect to our expected offset
     if( $self->{_offset} > $eof ) {
-      say("I've SHRUNK");
 
       # assume the file has rolled, so start at the beginning
       $self->{_offset} = 0;
@@ -281,7 +279,6 @@ sub _read_rbuf {
 
       # open successor file if exists
       if( defined($index) && $index < $path_count-1 ) {
-        say("I've SUCCESSOR");
         $self->_close();
 
         # update the bookmark with next file details

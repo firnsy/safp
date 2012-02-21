@@ -11,6 +11,11 @@ cache:
 
 
 watchers:
+#  - type: net
+#    host: 127.0.0.1
+#    port: 55555
+#    proto: tcp_safp
+
   - type: net
     host: 127.0.0.1
     port: 44444
@@ -23,10 +28,10 @@ watchers:
     filter: messages
 
 writers:
-#  - type: net
-#    host: 127.0.0.1
-#    port: 55555
-#    proto: tcp
+  - type: net
+    host: 127.0.0.1
+    port: 55555
+    proto: tcp_safp
 
   - type: file
     dir: /tmp/out

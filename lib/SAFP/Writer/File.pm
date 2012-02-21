@@ -5,7 +5,7 @@ use strict;
 
 use 5.010;
 
-use base qw(SAFP::Watcher);
+use base qw(SAFP::Writer);
 
 #
 # PERL INCLUDES
@@ -31,12 +31,14 @@ use Scalar::Util qw(weaken);
 sub new {
   my $class = shift;
   my $cfg = shift;
+  my $cache_cfg = shift;
 
   my $self = bless({
     _type    => undef,
     _cfg     => $cfg // {},
     _reader  => undef,
     _readers => [],
+    _cache_cfg => $cache_cfg,
   }, $class);
 
   $self->_setup(),
@@ -44,25 +46,52 @@ sub new {
   return $self;
 }
 
-sub add_writer {
-  my ($self, $cb) = @_;
+sub add_cache {
+  my ($self, $cache) = @_;
 
-  croak("Callback is not defined or a code references.") if( ref($cb) ne 'CODE' );
+  $self->{_cache} = $cache;
 
-  push( @{ $self->{_readers} }, $cb );
+  $self->{_cache}->set_bookmark_id( $self->{_url} );
 }
 
 sub add_bookmark_store {
-  my $self = shift;
-  my $bookmark_store = shift;
+  my ($self, $store) = @_;
 
-  $self->{_bookmark_store} = $bookmark_store;
+  $self->{_cache}->add_bookmark_store($store);
+}
+
+sub write {
+  my $self = shift;
+  my $data = shift;
+
+  croak("Unexpected data tsype: " . ref($data)) if( ref($data) ne 'HASH' );
+
+  say("WRITING");
+
+  my $path = $data->{rcpt};
+
+  if( ! defined($self->{_handles}{ $path }{fh}) ) {
+    $self->_open_file($path);
+  }
+  else {
+    # check for roll file on time
+    $self->_roll_file_on_time($path);
+  }
+
+  my $data_write = $data->{data} . "\n";
+
+  syswrite $self->{_handles}{ $path }{fh}, $data_write, length($data_write);
+
+  $self->{_cache}->bookmark();
+  $self->{_cache}->start_reading(); 
+
+  # check for roll file on size
+  $self->_roll_file_on_size($path);
 }
 
 #
-# PRIVATE USAGE
+# PRIVATE
 #
-
 
 sub _setup {
   my $self = shift;
@@ -114,35 +143,24 @@ sub _setup {
     }
   }
 
+  # establish cache wather
+  $self->{_cache} = SAFP::Watcher::Cache->new($self->{_cache_cfg});
+  $self->{_cache}->set_bookmark_id( $self->{_url} ); 
+  $self->{_cache}->add_reader(sub{
+    my ($cache, $data) = @_;
+   
+    say("GOT SOMETHING");
+ 
+    $cache->stop_reading();
+    $self->write($data);
+  });
+
+  $self->{_cache}->start_reading();
+
   say('  - Writing at: ' . $cfg->{dir} . '/');
 }
 
 
-sub write {
-  my $self = shift;
-  my $data = shift;
-
-  croak("Unexpected data tsype: " . ref($data)) if( ref($data) ne 'HASH' );
-
-  my $path = $data->{rcpt};
-
-  if( ! defined($self->{_handles}{ $path }{fh}) ) {
-    $self->_open_file($path);
-  }
-  else {
-    # check for roll file on time
-    $self->_roll_file_on_time($path);
-  }
-
-  my $data_write = $data->{data} . "\n";
-
-  print $data_write;
-
-  syswrite $self->{_handles}{ $path }{fh}, $data_write, length($data_write);
-
-  # check for roll file on size
-  $self->_roll_file_on_size($path);
-}
 
 sub _open_file {
   my $self = shift;

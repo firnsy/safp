@@ -39,6 +39,10 @@ sub new {
     _read_interval  => 5,
     _watch_interval => 5,
     _readers        => [],
+    _consume        => 1,
+    _drain          => 1,
+    _on_drained     => undef,
+    _url            => undef,
   }, $class);
 
   $self->_setup(),
@@ -59,6 +63,12 @@ sub add_bookmark_store {
   my $bookmark_store = shift;
 
   $self->{_bookmark_store} = $bookmark_store;
+}
+
+sub set_bookmark_id {
+  my ($self, $id) = @_;
+
+  $self->{_url} = $id;
 }
 
 sub save_bookmarks {
@@ -95,7 +105,6 @@ sub load_bookmarks {
   say Dumper($b, $c);
 
   close($bookmark_h);
-
 }
 
 sub bookmark {
@@ -103,13 +112,38 @@ sub bookmark {
 
   if( defined($self->{_rbuf}) &&
       defined($self->{_offset}) ) {
-    $self->{_bookmark_store}{'.cache'} = {
+    say("BOOKMARKING");
+
+    $self->{_bookmark_store}{'.cache'}{ $self->{_url} } = {
       path   => $self->{_path},
       offset => $self->{_offset} - length($self->{_rbuf}),
       csum   => ''
     };
   }
 }
+
+sub stop_reading {
+  my $self = shift;
+
+  say("Stopping: " . $self->{_url});
+
+  $self->{_consume} = 0;
+  $self->{_drain} = 0;
+}
+
+sub start_reading {
+  my $self = shift;
+
+  say("Starting: " . $self->{_url});
+
+  croak("No ID set yet.") if( ! defined($self->{_url}) );
+
+  $self->{_consume} = 1;
+  $self->{_drain} = 1;
+
+  $self->_open_with_bookmark();
+}
+
 
 #
 # PRIVATE USAGE
@@ -164,8 +198,6 @@ sub _setup {
 
     return undef;
   };
-
-  $self->_open_with_bookmark();
 }
 
 sub _open_with_bookmark {
@@ -173,7 +205,7 @@ sub _open_with_bookmark {
 
   return if( $self->{_path_h} );
 
-  my $bookmark = $self->{_bookmark_store}{'.cache'} // {};
+  my $bookmark = $self->{_bookmark_store}{'.cache'}{ $self->{_url} } // {};
 
   # get list of available files
   my $glob_list = $self->{_cfg}{dir} . '/' . $self->{_cfg}{file};
@@ -204,7 +236,7 @@ sub _open_with_bookmark {
 
   undef( $self->{_timer_watch} );
 
-  say("  - Watching on file:/" . $self->{_path});
+  say("  - " . $self->{_url} . " Watching on file:/" . $self->{_path});
   AnyEvent::Util::fh_nonblocking $self->{_path_h}, 1;
 
   sysseek($self->{_path_h}, $self->{_offset}, SEEK_SET);
@@ -241,8 +273,15 @@ sub _schedule_open {
   };
 }
 
+# consume from the cache file
 sub _read_rbuf {
   my $self = shift;
+
+  # only continue if we've been told to consume
+  if( ! $self->{_consume} ) {
+#    say("NOT CONSUMING ON REQUEST");
+    return;
+  }
 
   my $len = sysread($self->{_path_h}, $self->{_rbuf}, 8192, length($self->{_rbuf}));
 
@@ -251,16 +290,13 @@ sub _read_rbuf {
     $self->{_offset} += $len;
   }
   elsif( defined($len) ) {
-    say("I'M EOF");
     $self->_drain_rbuf();
 
     my $eof = syseof($self->{_path_h}) + 0;
-    my $bookmark = $self->{_bookmark_store}{'.cache'};
+    my $bookmark = $self->{_bookmark_store}{'.cache'}{ $self->{_url} };
 
     # check if file has shrunk with respect to our expected offset
     if( $self->{_offset} > $eof ) {
-      say("I've SHRUNK");
-
       # assume the file has rolled, so start at the beginning
       $self->{_offset} = 0;
       sysseek($self->{_path_h}, $self->{_offset}, SEEK_SET);
@@ -285,7 +321,6 @@ sub _read_rbuf {
 
       # open successor file if exists
       if( defined($index) && $index < $path_count-1 ) {
-        say("I've SUCCESSOR");
         $self->_close();
 
         # update the bookmark with next file details
@@ -296,7 +331,7 @@ sub _read_rbuf {
       }
     }
   }
-  else{
+  else {
     say("ERROR: I SUCK");
   }
 }
@@ -308,10 +343,15 @@ sub _drain_rbuf {
   local $self->{_skip_drain_buf} = 1;
 
   while () {
-
     my $len = length( $self->{_rbuf} );
 
     last unless $len;
+
+    # abort if we're not allowed to drain
+    if( ! $self->{_drain} ) {
+#      say("NOT DRAINING ON REQUEST");
+      last;
+    }
 
     $self->_on_read($self->{_rbuf});
 

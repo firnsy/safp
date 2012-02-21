@@ -5,7 +5,7 @@ use strict;
 
 use 5.010;
 
-use base qw(SAFP::Watcher);
+use base qw(SAFP::Writer);
 
 #
 # PERL INCLUDES
@@ -127,8 +127,6 @@ sub write {
   $self->_roll_file_on_time($path);
 
   my $data_write = $self->{encoder}->($data) . "\n";
-
-  print $data_write;
 
   syswrite $self->{_handles}{ $path }{fh}, $data_write, length($data_write);
 
