@@ -71,48 +71,11 @@ sub set_bookmark_id {
   $self->{_url} = $id;
 }
 
-sub save_bookmarks {
-  my $self = shift;
-  my $bookmark_h;
-  my $bookmark_path = $self->{_cfg}{dir} . '/.bookmarks';
-
-  croak("Unable to open bookmark: " . $bookmark_path) if( ! (sysopen( $bookmark_h, $bookmark_path, O_WRONLY | O_CREAT | O_TRUNC) ) );
-
-  my $b = $self->{_json}->encode($self->{_bookmark_store}) . "\n";
-
-  syswrite $bookmark_h, $b, length($b);
-
-  close($bookmark_h);
-}
-
-sub load_bookmarks {
-  my $self = shift;
-  my $bookmark_h;
-  my $bookmark_path = $self->{_cfg}{dir} . '/.bookmarks';
-
-  croak("Unable to open bookmark: " . $bookmark_path) if( ! (sysopen( $bookmark_h, $bookmark_path, O_RDONLY) ) );
-
-
-  my $b = '';
-  my $len;
-
-  while( $len = sysread($bookmark_h, $b, length($b)) && $len > 0 ) {
-
-  }
-
-  my $c; # = $self->{_json}->decode($b);
-
-  say Dumper($b, $c);
-
-  close($bookmark_h);
-}
-
 sub bookmark {
   my $self = shift;
 
   if( defined($self->{_rbuf}) &&
       defined($self->{_offset}) ) {
-    say("BOOKMARKING");
 
     $self->{_bookmark_store}{'.cache'}{ $self->{_url} } = {
       path   => $self->{_path},
@@ -125,16 +88,12 @@ sub bookmark {
 sub stop_reading {
   my $self = shift;
 
-  say("Stopping: " . $self->{_url});
-
   $self->{_consume} = 0;
   $self->{_drain} = 0;
 }
 
 sub start_reading {
   my $self = shift;
-
-  say("Starting: " . $self->{_url});
 
   croak("No ID set yet.") if( ! defined($self->{_url}) );
 
@@ -286,8 +245,8 @@ sub _read_rbuf {
   my $len = sysread($self->{_path_h}, $self->{_rbuf}, 8192, length($self->{_rbuf}));
 
   if( $len > 0 ) {
-    $self->_drain_rbuf();
     $self->{_offset} += $len;
+    $self->_drain_rbuf();
   }
   elsif( defined($len) ) {
     $self->_drain_rbuf();

@@ -29,20 +29,22 @@ use Scalar::Util qw(weaken);
 #
 
 sub new {
-  my $class = shift;
-  my $cfg = shift;
-  my $cache_cfg = shift;
+  my ($class, $cfg, $cache_cfg, $bookmarks) = @_;
+
+  $cfg       //= {};
+  $cache_cfg //= {};
+  $bookmarks //= {};
 
   my $self = bless({
     _type => undef,
-    _cfg  => $cfg // {},
+    _cfg  => $cfg,
     _sock => undef,
     _clients => {},
     _readers => [],
     _cache_cfg => $cache_cfg,
   }, $class);
 
-  $self->_setup(),
+  $self->_setup($cfg, $cache_cfg, $bookmarks),
 
   return $self;
 }
@@ -76,8 +78,9 @@ sub write {
 #
 
 sub _setup {
-  my $self = shift;
-  my $cfg = $self->{_cfg};
+  my ($self, $cfg, $cache_cfg, $bookmarks) = @_;
+
+  $cfg = $self->{_cfg};
 
   if( ! defined($cfg->{host}) ) {
     croak("No host configured for net writer.");
@@ -86,7 +89,7 @@ sub _setup {
     croak("No port configured for net writer.");
   }
 
-  $cfg->{proto} //= "tcp";
+  $cfg->{proto} //= "tcp_raw";
 
   $self->{_json} = JSON->new->utf8;
 
@@ -125,10 +128,11 @@ sub _setup {
 
   # establish cache wather
   $self->{_cache} = SAFP::Watcher::Cache->new($self->{_cache_cfg});
-  $self->{_cache}->set_bookmark_id( $cfg->{host} . ':' . $cfg->{port} ); 
+  $self->{_cache}->set_bookmark_id( $cfg->{host} . ':' . $cfg->{port} );
+  $self->{_cache}->add_bookmark_store( $bookmarks );
   $self->{_cache}->add_reader(sub{
     my ($cache, $data) = @_;
-    
+
     $cache->stop_reading();
     $self->write($data);
   });

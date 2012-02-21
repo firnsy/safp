@@ -29,19 +29,21 @@ use Scalar::Util qw(weaken);
 #
 
 sub new {
-  my $class = shift;
-  my $cfg = shift;
-  my $cache_cfg = shift;
+  my ($class, $cfg, $cache_cfg, $bookmarks) = @_;
+
+  $cfg       //= {};
+  $cache_cfg //= {};
+  $bookmarks //= {};
 
   my $self = bless({
     _type    => undef,
-    _cfg     => $cfg // {},
+    _cfg     => $cfg,
     _reader  => undef,
     _readers => [],
     _cache_cfg => $cache_cfg,
   }, $class);
 
-  $self->_setup(),
+  $self->_setup($cfg, $cache_cfg, $bookmarks),
 
   return $self;
 }
@@ -64,9 +66,7 @@ sub write {
   my $self = shift;
   my $data = shift;
 
-  croak("Unexpected data tsype: " . ref($data)) if( ref($data) ne 'HASH' );
-
-  say("WRITING");
+  croak("Unexpected data type: " . ref($data)) if( ref($data) ne 'HASH' );
 
   my $path = $data->{rcpt};
 
@@ -83,7 +83,7 @@ sub write {
   syswrite $self->{_handles}{ $path }{fh}, $data_write, length($data_write);
 
   $self->{_cache}->bookmark();
-  $self->{_cache}->start_reading(); 
+  $self->{_cache}->start_reading();
 
   # check for roll file on size
   $self->_roll_file_on_size($path);
@@ -94,8 +94,9 @@ sub write {
 #
 
 sub _setup {
-  my $self = shift;
-  my $cfg = $self->{_cfg};
+  my ($self, $cfg, $cache_cfg, $bookmarks) = @_;
+
+  $cfg = $self->{_cfg};
 
   if( ! defined($cfg->{dir}) ) {
     croak("No directory configured for file writer.");
@@ -104,10 +105,10 @@ sub _setup {
     croak("Absolute paths are required.");
   }
   elsif( ! -d -r $cfg->{dir} ) {
-    croak("Directory doesn't exist or is not readable.");
+    croak("Directory doesn't exist or is not readable: " . $cfg->{dir});
   }
 
-  # cleanup trailing and leading slashes 
+  # cleanup trailing and leading slashes
   $cfg->{dir}  =~ s/\/$//;
 
   $self->{_url} = 'file://' . $cfg->{dir};
@@ -145,12 +146,11 @@ sub _setup {
 
   # establish cache wather
   $self->{_cache} = SAFP::Watcher::Cache->new($self->{_cache_cfg});
-  $self->{_cache}->set_bookmark_id( $self->{_url} ); 
+  $self->{_cache}->set_bookmark_id( $self->{_url} );
+  $self->{_cache}->add_bookmark_store( $bookmarks );
   $self->{_cache}->add_reader(sub{
     my ($cache, $data) = @_;
-   
-    say("GOT SOMETHING");
- 
+
     $cache->stop_reading();
     $self->write($data);
   });

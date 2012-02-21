@@ -31,7 +31,7 @@ use SAFP::Writer::Net;
 #
 
 sub new {
-  my ($class, $cfg, $cache) = @_;
+  my ($class, $cfg, $cache, $bookmarks) = @_;
 
   if( ! defined($cfg) )
   {
@@ -55,7 +55,7 @@ sub new {
 
   my $writer_path = "SAFP::Writer::$type";
 
-  return $writer_path->new($cfg, $cache);
+  return $writer_path->new($cfg, $cache, $bookmarks);
 }
 
 sub write {

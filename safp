@@ -14,7 +14,10 @@ use lib './lib';
 # PERL INCLUDES
 #
 use AnyEvent;
+use Carp;
 use Data::Dumper;
+use Fcntl qw(SEEK_SET SEEK_CUR SEEK_END O_RDONLY O_WRONLY O_CREAT O_EXCL O_TRUNC);
+use JSON;
 use YAML::Tiny;
 
 #
@@ -43,16 +46,6 @@ if( @ARGV && -r $ARGV[0] ) {
   $config = YAML::Tiny->read($ARGV[0])->[0];
 }
 
-# TODO: some initial defaults to be replaced with optional and mandatory
-# config checking later on
-
-$config->{listener} //= [];
-$config->{sender} //= [];
-
-$config->{cache}{type}     //= "cache";
-$config->{cache}{separate} //= 0;
-$config->{cache}{path}     //= '/tmp';
-
 #
 # validate config
 if( ! @{ $config->{watchers} } ) {
@@ -65,9 +58,32 @@ if( ! @{ $config->{writers} } ) {
   exit(1);
 }
 
+# TODO: some initial defaults to be replaced with optional and mandatory
+# config checking later on
+
+$config->{listener} //= [];
+$config->{sender} //= [];
+
+$config->{cache}{type}     //= "cache";
+$config->{cache}{separate} //= 0;
+$config->{cache}{path}     //= '/tmp';
+
+$config->{cache}{bookmark_path} = $config->{cache}{dir} . '/.bookmarks';
+
 # load the bookmarks
-say "Loading bookmarks ...";
-#$cache_watcher->load_bookmarks();
+if( -r $config->{cache}{bookmark_path} ) {
+  say "Loading bookmarks ...";
+
+  local $/ = undef;
+
+  croak("Unable to open bookmark file: " . $config->{cache}{bookmark_path}) if( ! (open( BOOKMARK, '<', $config->{cache}{bookmark_path}) ) );
+
+  my $b = <BOOKMARK>;
+  $bookmarks = JSON->new->utf8->decode($b);
+
+  close(BOOKMARK);
+}
+
 
 #
 # build the writers 
@@ -76,8 +92,7 @@ say "Building writer(s) ...";
 foreach my $s ( @{ $config->{writers} } ) {
   continue if( ! defined($s->{type}) );
 
-  my $writer = SAFP::Writer->new($s, $config->{cache});
-  $writer->add_bookmark_store($bookmarks);
+  my $writer = SAFP::Writer->new($s, $config->{cache}, $bookmarks);
 
   push( @{ $writers }, $writer );
 }
@@ -142,6 +157,17 @@ say "\nSaving the bookmark.";
 
 say Dumper($bookmarks);
 
-#$cache_watcher->save_bookmarks();
+{
+  my $bookmark_h;
+
+  croak("Unable to open bookmark file: " . $config->{cache}{bookmark_path}) if( ! (open( BOOKMARK, '>', $config->{cache}{bookmark_path}) ) );
+
+  my $b = JSON->new->utf8->encode($bookmarks) . "\n";
+
+  print BOOKMARK $b;
+
+  close(BOOKMARK);
+}
+
 
 exit 0;
