@@ -189,10 +189,10 @@ sub _on_connect_error {
   my ($self, $handle, $message) = @_;
 
   say("Could not connect upstream: " . $message);
-  
+
   $self->{_connected} = 0;
 
-  $self->_reconnect(); 
+  $self->_reconnect();
 }
 
 sub _on_error {
@@ -202,7 +202,7 @@ sub _on_error {
 
   $self->{_connected} = 0;
 
-  $self->_reconnect(); 
+  $self->_reconnect();
 }
 
 sub _on_read {
@@ -213,8 +213,6 @@ sub _on_read {
 
 sub _on_drain {
   my $self = shift;
-  
-  say("DRAIN");
 
   $self->{_cache}->bookmark();
   $self->{_cache}->start_reading();

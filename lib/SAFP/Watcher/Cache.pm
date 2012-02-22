@@ -147,9 +147,6 @@ sub _setup {
     }
     elsif( $@ ) {
       $self->{_json}->incr_skip;
-      $self->{_rbuf} = $self->{_json}->incr_text;
-
-      say("JSON: DECODE POOPED!");
     }
     else {
       $self->{_rbuf} = '';
@@ -328,6 +325,7 @@ sub _on_read {
 
   return if( ! defined($safp_pack) );
 
+  say("FIRING READ");
   foreach my $r ( @{ $self->{_readers} } ) {
     $r->( $self, $safp_pack );
   }

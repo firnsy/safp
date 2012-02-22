@@ -1,0 +1,111 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+use 5.010;
+
+use AnyEvent;
+use AnyEvent::Handle;
+use Data::Dumper;
+use Fcntl qw(SEEK_SET SEEK_CUR SEEK_END);
+
+
+my $file_tail = '/tmp/logs/log.2';
+my $file_tail2 = '/tmp/logs/log.3';
+my $file_out  = '/tmp/out/log.1';
+
+my $tail_h;
+my $tail_h2;
+my $out_h;
+
+# open file for tailing
+if( ! open($tail_h, '<', $file_tail) ) {
+  close($tail_h);
+  say("Can't open file " . $file_tail);
+  exit(1);
+}
+
+if( ! open($tail_h2, '<', $file_tail2) ) {
+  close($tail_h2);
+  say("Can't open file " . $file_tail2);
+  exit(1);
+}
+
+
+
+
+# open file for storing
+if( ! open($out_h, '>', $file_out) ) {
+  close($out_h);
+  say("Can't open file " . $file_out);
+  exit(1);
+}
+
+
+
+
+my $cv = AnyEvent->condvar;
+
+
+my $_h; $_h = AnyEvent::Handle->new(
+  fh => $tail_h,
+  on_error => sub {
+
+  },
+  on_read  => sub {
+    my($hdl) = @_;
+    $hdl->push_read( line => sub {
+      my($hdl, $line) = @_;
+
+      say("GOT: " . $line);
+    });
+  },
+  on_eof   => sub {
+    my($hdl) = @_;
+    # grab the offset
+    my $offset = sysseek($tail_h, 0, SEEK_CUR);
+
+    say("EOF: $offset");
+
+    $cv->send();
+  }
+);
+
+
+my $_h2; $_h2 = AnyEvent::Handle->new(
+  fh => $tail_h,
+  on_error => sub {
+
+  },
+  on_read  => sub {
+    my($hdl) = @_;
+    $hdl->push_read( line => sub {
+      my($hdl, $line) = @_;
+
+      say("GOT2: " . $line);
+    });
+  },
+  on_eof   => sub {
+    my($hdl) = @_;
+    # grab the offset
+    my $offset = sysseek($tail_h2, 0, SEEK_CUR);
+
+    say("EOF2: $offset");
+
+    $cv->send();
+  }
+);
+
+
+
+
+
+
+$cv->recv();
+
+close($out_h);
+close($tail_h);
+close($tail_h2);
+
+say("DONE");
